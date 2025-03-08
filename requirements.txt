@@ -11,3 +11,5 @@ openpyxl
 pandas
 pillow
 pytesseract
+mistralai
+flask-cors

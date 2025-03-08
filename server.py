@@ -1,10 +1,14 @@
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, request, jsonify, session
+from flask_cors import CORS
 import os
 from werkzeug.utils import secure_filename
 import rag_service
 import uuid
 
 app = Flask(__name__)
+# Enable CORS for React frontend
+CORS(app, supports_credentials=True)
+
 app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs")
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024 * 1024  # 10GB max upload size
 app.secret_key = 'genie_secret_key'  # Add a secret key for session management
@@ -13,14 +17,14 @@ app.secret_key = 'genie_secret_key'  # Add a secret key for session management
 if not os.path.exists(app.config['UPLOAD_FOLDER']):
     os.makedirs(app.config['UPLOAD_FOLDER'])
 
-@app.route('/')
-def index():
+@app.route('/api/init', methods=['GET'])
+def init():
     # Initialize thread_id in session if it doesn't exist
     if 'thread_id' not in session:
         session['thread_id'] = str(uuid.uuid4())
     
     documents = rag_service.get_document_list()
-    return render_template('index.html', documents=documents)
+    return jsonify({'documents': documents, 'threadId': session['thread_id']})
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
@@ -126,6 +130,22 @@ def reset_system():
         return jsonify({'success': True, 'message': 'System reset successfully'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
+
+# Serve React app in production
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve(path):
+    # This will serve the React app in production
+    # For development, React will be served by the React development server
+    if app.debug:
+        return jsonify({"message": "API server is running. React app should be started separately in development mode."})
+    
+    # In production, serve the built React app
+    from flask import send_from_directory
+    if path != "" and os.path.exists(os.path.join('frontend/build', path)):
+        return send_from_directory('frontend/build', path)
+    else:
+        return send_from_directory('frontend/build', 'index.html')
 
 if __name__ == '__main__':
     # Initialize the RAG system on startup

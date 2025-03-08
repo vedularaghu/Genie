@@ -1,0 +1,22 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Lamp/Genie lamp base -->
+  <path d="M30 70C30 70 35 60 50 60C65 60 70 70 70 70L65 85H35L30 70Z" fill="#1a56db" />
+  
+  <!-- Lamp handle -->
+  <path d="M65 85C65 85 75 83 75 75C75 67 65 65 65 65" stroke="white" strokeWidth="2" strokeLinecap="round" />
+  
+  <!-- Lamp base -->
+  <rect x="35" y="85" width="30" height="5" rx="2" fill="#1a56db" />
+  
+  <!-- Smoke/Genie effect -->
+  <path d="M40 60C40 60 45 40 50 30C55 40 60 60 60 60" stroke="white" strokeWidth="2" strokeLinecap="round" strokeDasharray="2 2" />
+  <path d="M42 50C42 50 50 35 58 50" stroke="white" strokeWidth="2" strokeLinecap="round" strokeDasharray="2 2" />
+  <path d="M45 40C45 40 50 30 55 40" stroke="white" strokeWidth="2" strokeLinecap="round" strokeDasharray="2 2" />
+  
+  <!-- Sparkles -->
+  <circle cx="50" cy="25" r="3" fill="white" />
+  <circle cx="40" cy="30" r="2" fill="white" />
+  <circle cx="60" cy="30" r="2" fill="white" />
+  <circle cx="35" cy="40" r="1.5" fill="white" />
+  <circle cx="65" cy="40" r="1.5" fill="white" />
+</svg> 
