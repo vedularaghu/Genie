@@ -10,6 +10,9 @@ import requests
 from PIL import Image
 import io
 import re
+import threading
+import time
+import concurrent.futures
 
 from langchain_core.documents import Document
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -31,6 +34,9 @@ _chain = None
 _is_initialized = False
 _memory = MemorySaver()
 _conversation_history = {}
+
+# Global timeout settings
+_default_timeout = 30  # Default timeout in seconds
 
 def load_documents():
     """Load documents from the docs directory, supporting PDF, Excel, and CSV."""
@@ -100,301 +106,129 @@ def load_documents():
     return all_documents
 
 def split_documents(documents):
-    """Split documents with extremely fine-grained chunking for better retrieval."""
+    """Split documents into chunks."""
     if not documents:
         print("No documents to split")
         return []
     
-    docs_by_type = {
-        'pdf': [],
-        'excel': [],
-        'csv': []
-    }
+    # Use a simple splitter for all document types
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200,
+        length_function=len,
+        separators=["\n\n", "\n", ". ", " ", ""]
+    )
     
-    for doc in documents:
-        file_type = doc.metadata.get('file_type', 'pdf')  
-        if file_type in docs_by_type:
-            docs_by_type[file_type].append(doc)
-        else:
-            docs_by_type['pdf'].append(doc) 
-    
-    all_chunks = []
-    
-    if docs_by_type['pdf']:
-        # Use very small chunks with significant overlap for PDFs
-        pdf_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=500,  # Very small chunks
-            chunk_overlap=250,  # 50% overlap
-            length_function=len,
-            separators=["\n\n", "\n", ".", "!", "?", ",", " ", ""]
-        )
-        pdf_chunks = pdf_splitter.split_documents(docs_by_type['pdf'])
-        print(f"Split {len(docs_by_type['pdf'])} PDF documents into {len(pdf_chunks)} chunks")
-        all_chunks.extend(pdf_chunks)
-    
-    for doc_type in ['excel', 'csv']:
-        if docs_by_type[doc_type]:
-            table_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=500,  # Smaller chunks for tabular data
-                chunk_overlap=200,
-                length_function=len,
-                separators=["\n", ",", "\t", " ", ""]
-            )
-            table_chunks = table_splitter.split_documents(docs_by_type[doc_type])
-            print(f"Split {len(docs_by_type[doc_type])} {doc_type} documents into {len(table_chunks)} chunks")
-            all_chunks.extend(table_chunks)
-    
-    print(f"Total chunks created: {len(all_chunks)}")
-    return all_chunks
+    chunks = splitter.split_documents(documents)
+    print(f"Split {len(documents)} documents into {len(chunks)} chunks")
+    return chunks
 
 def initialize_system():
-    """Initialize the RAG system with completely overhauled retrieval and prompting."""
-    global _llm, _embeddings, _vector_store, _chain, _is_initialized, _memory
+    """Initialize a simple RAG system."""
+    global _llm, _embeddings, _vector_store, _chain, _is_initialized
     
     if _is_initialized:
         return _chain
     
-    print("Initializing RAG system with advanced retrieval...")
+    print("Initializing simple RAG system...")
     
-    # Use GPT-4o with strict factual settings
+    # Initialize LLM
     _llm = ChatOpenAI(model="gpt-4o", temperature=0)
     print("LLM initialized")
     
-    # Use the latest embedding model with maximum dimensions
-    _embeddings = OpenAIEmbeddings(model="text-embedding-3-large", dimensions=3072)
+    # Initialize embeddings
+    _embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
     print("Embeddings initialized")
     
     # Create vector store
     _vector_store = InMemoryVectorStore(embedding=_embeddings)
     print("Vector store initialized")
     
-    # Load all documents
-    all_documents = load_documents()
+    # Load documents
+    documents = load_documents()
     
-    # Process documents with improved chunking
-    if all_documents:
-        text_chunks = split_documents(all_documents)
-        if text_chunks:
-            print(f"Adding {len(text_chunks)} text chunks to vector store...")
-            _vector_store.add_documents(documents=text_chunks)
-            print(f"Documents added to vector store.")
+    # Process documents
+    if documents:
+        chunks = split_documents(documents)
+        if chunks:
+            print(f"Adding {len(chunks)} chunks to vector store...")
+            _vector_store.add_documents(documents=chunks)
+            print("Documents added to vector store")
     else:
         print("WARNING: No documents were loaded")
     
-    # Create a hybrid retriever that combines semantic search with keyword search
-    def hybrid_retrieval(query, top_k=10):
-        """Hybrid retrieval combining semantic and keyword search."""
-        # Semantic search
-        semantic_docs = _vector_store.similarity_search(query, k=top_k)
+    # Create a simple RAG chain
+    def simple_rag_chain(query, thread_id=None):
+        # Retrieve relevant documents
+        docs = _vector_store.similarity_search(query, k=5)
         
-        # Simple keyword search (as a backup)
-        query_terms = set(query.lower().split())
-        all_docs = load_documents()
-        
-        # Score documents by keyword matches
-        keyword_scores = []
-        for doc in all_docs:
-            content = doc.page_content.lower()
-            # Count how many query terms appear in the document
-            matches = sum(1 for term in query_terms if term in content)
-            if matches > 0:
-                keyword_scores.append((doc, matches))
-        
-        # Sort by number of matches (descending)
-        keyword_docs = [doc for doc, _ in sorted(keyword_scores, key=lambda x: x[1], reverse=True)[:top_k]]
-        
-        # Combine results (semantic first, then keyword)
-        combined_docs = []
-        seen_contents = set()
-        
-        # Add semantic results first
-        for doc in semantic_docs:
-            content_hash = hash(doc.page_content)
-            if content_hash not in seen_contents:
-                combined_docs.append(doc)
-                seen_contents.add(content_hash)
-        
-        # Add keyword results that aren't duplicates
-        for doc in keyword_docs:
-            content_hash = hash(doc.page_content)
-            if content_hash not in seen_contents and len(combined_docs) < top_k:
-                combined_docs.append(doc)
-                seen_contents.add(content_hash)
-        
-        return combined_docs[:top_k]
-    
-    def format_docs(docs):
-        """Format documents with clear source attribution and page numbers."""
-        if not docs:
-            return "No relevant information found in the documents."
-        
-        formatted_text = ""
+        # Format documents
+        context = ""
         for i, doc in enumerate(docs):
-            source = doc.metadata.get('source', 'Unknown source')
-            file_type = doc.metadata.get('file_type', 'document')
-            page_num = doc.metadata.get('page', '')
-            page_info = f" (page {page_num})" if page_num else ""
+            source = doc.metadata.get('source', 'Unknown')
+            page = doc.metadata.get('page', '')
+            page_info = f" (page {page})" if page else ""
             
-            # Add clear section header
-            formatted_text += f"\n\n### DOCUMENT SECTION {i+1} ###\n"
-            formatted_text += f"Source: {source}{page_info}, Type: {file_type}\n"
-            formatted_text += f"Content:\n{doc.page_content}\n"
-            formatted_text += f"### END OF DOCUMENT SECTION {i+1} ###"
+            context += f"\n\nDocument {i+1} from {source}{page_info}:\n{doc.page_content}"
         
-        return formatted_text
-    
-    # Define the nodes for our graph
-    def retrieve_context(state):
-        """Retrieve relevant documents using hybrid retrieval."""
-        # Get the last user message
-        messages = state.get("messages", [])
-        if not messages or messages[-1].get("role") != "user":
-            return state
-        
-        query = messages[-1].get("content", "")
-        
-        # Create an enhanced query that includes context from conversation
-        enhanced_query = query
-        
-        # If we have conversation history, use it to enhance the query
-        if len(messages) > 2:
-            # Get the last exchange
-            last_user_msg = ""
-            last_assistant_msg = ""
-            
-            for msg in messages[-3:-1]:
-                if msg.get("role") == "user":
-                    last_user_msg = msg.get("content", "")
-                elif msg.get("role") == "assistant":
-                    last_assistant_msg = msg.get("content", "")
-            
-            if last_user_msg and last_assistant_msg:
-                enhanced_query = f"Previous question: {last_user_msg}\nPrevious answer: {last_assistant_msg}\nNew question: {query}"
-        
-        print(f"Enhanced query: {enhanced_query}")
-        
-        # Use hybrid retrieval
-        docs = hybrid_retrieval(enhanced_query, top_k=12)
-        formatted_docs = format_docs(docs)
-        
-        # Add the context to the state
-        state["context"] = formatted_docs
-        state["raw_docs"] = docs  # Store raw docs for potential follow-up
-        return state
-    
-    def generate_response(state):
-        """Generate a response with strict adherence to document content."""
-        # Get the last user message
-        messages = state.get("messages", [])
-        if not messages or messages[-1].get("role") != "user":
-            return state
-        
-        query = messages[-1].get("content", "")
-        
-        # Format conversation history for context
-        chat_context = ""
-        for msg in messages[:-1]:  # Exclude the current message
-            role = "User" if msg.get("role") == "user" else "Assistant"
-            chat_context += f"{role}: {msg.get('content', '')}\n\n"
-        
-        # Check if we have relevant documents
-        if "context" in state and state["context"] and "No relevant information" not in state["context"]:
-            # Completely overhauled prompt with strict instructions
-            prompt = f"""You are a document analysis AI with STRICT instructions to ONLY use information from the provided document sections.
+        # Create prompt
+        prompt = f"""You are a document analysis assistant. Answer the question based ONLY on the following context from documents.
 
-CRITICAL INSTRUCTIONS - YOU MUST FOLLOW THESE EXACTLY:
-1. ONLY answer using information explicitly stated in the document sections below.
-2. If the answer is not in the documents, say "I cannot find information about this in the provided documents."
-3. NEVER make up information or use your general knowledge.
-4. ALWAYS cite your sources by referring to specific document sections (e.g., "According to Document Section 2...").
-5. Be precise and factual - accuracy is your top priority.
-6. For data from Excel or CSV files, present it in a structured format.
+Context:
+{context}
 
-Previous conversation:
-{chat_context}
+Question: {query}
 
-DOCUMENT SECTIONS:
-{state["context"]}
+Important instructions:
+1. Only use information from the provided context
+2. If the answer is not in the context, say "I don't have enough information to answer this question based on the provided documents."
+3. Do not use your general knowledge
+4. Cite the document sources in your answer
 
-User question:
-{query}
-
-Your answer (STRICTLY based ONLY on the document sections provided):"""
-        else:
-            # No relevant documents found
-            prompt = f"""You are a document analysis AI.
-
-I could not find any relevant information in the documents to answer this specific question.
-
-Previous conversation:
-{chat_context}
-
-Question:
-{query}
-
-Your answer (inform the user that no relevant information was found):"""
+Answer:"""
         
-        # Generate response with strict factuality
+        # Generate response
         response = _llm.invoke(prompt)
-        
-        # Add the assistant's response to the messages
-        state["messages"].append({"role": "assistant", "content": response.content})
-        return state
+        return response.content
     
-    # Build the graph
-    builder = StateGraph(dict)
-    builder.add_node("retrieve_context", retrieve_context)
-    builder.add_node("generate_response", generate_response)
-    
-    # Add edges
-    builder.add_edge("retrieve_context", "generate_response")
-    builder.add_edge("generate_response", END)
-    
-    # Set the entry point
-    builder.set_entry_point("retrieve_context")
-    
-    # Compile the graph with memory
-    graph = builder.compile(checkpointer=_memory)
-    
-    def process_query(query, thread_id=None):
-        """Process a query using the conversation graph."""
-        if not thread_id:
-            thread_id = str(uuid.uuid4())
-        
-        # Get existing conversation or create a new one
-        config = {"configurable": {"thread_id": thread_id}}
-        
-        # Create the initial state as a dictionary
-        state = {"messages": [{"role": "user", "content": query}]}
-        
-        # Run the graph
-        try:
-            result = graph.invoke(state, config=config)
-            
-            # Get the last message (the assistant's response)
-            if result.get("messages") and len(result["messages"]) > 1:
-                response = result["messages"][-1].get("content", "")
-            else:
-                response = "I'm sorry, I couldn't process your query properly."
-            
-            return response
-        except Exception as e:
-            print(f"Error in graph execution: {str(e)}")
-            return f"Error processing your query: {str(e)}"
-    
-    _chain = process_query
-    
+    _chain = simple_rag_chain
     _is_initialized = True
-    print("RAG system initialization complete with advanced retrieval")
+    print("Simple RAG system initialized")
     return _chain
 
-def process_query(query, thread_id=None):
-    """Process a user query and return the response with improved error handling."""
+def process_with_timeout(func, args=(), kwargs={}, timeout=None):
+    """Execute a function with a timeout."""
+    if timeout is None or timeout <= 0:
+        # No timeout, just execute the function
+        return func(*args, **kwargs)
+    
+    # Use concurrent.futures to run the function with a timeout
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(func, *args, **kwargs)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            print(f"Processing timed out after {timeout} seconds")
+            return "I'm sorry, but processing your request took too long and was stopped. Please try a simpler question or adjust the timeout setting."
+
+def process_query(query, thread_id=None, timeout=None):
+    """Process a user query and return the response with timeout support."""
     if not _is_initialized:
         initialize_system()
     
     if not thread_id:
         thread_id = str(uuid.uuid4())
+    
+    # Extract timeout from query if specified
+    timeout_match = re.search(r'timeout=(\d+)', query)
+    if timeout_match:
+        try:
+            user_timeout = int(timeout_match.group(1))
+            timeout = user_timeout
+            # Remove the timeout parameter from the query
+            query = re.sub(r'timeout=\d+', '', query).strip()
+        except ValueError:
+            pass
     
     try:
         # Check if this is an OCR request
@@ -408,7 +242,7 @@ def process_query(query, thread_id=None):
         if not document_files:
             print("WARNING: No documents have been loaded.")
             return {
-                "response": "I don't have any documents in my knowledge base yet, but I can still try to answer your question based on my general knowledge. What would you like to know?",
+                "response": "I don't have any documents in my knowledge base yet. Please upload some documents first.",
                 "thread_id": thread_id,
                 "success": True
             }
@@ -424,9 +258,21 @@ def process_query(query, thread_id=None):
                 "success": True
             }
         
-        print(f"Processing query: '{query}'")
-        # Run the chain with thread_id for memory
-        response = _chain(query, thread_id)
+        print(f"Processing query: '{query}' with timeout: {timeout if timeout else 'None'}")
+        
+        # Run the chain with timeout
+        if timeout:
+            response = process_with_timeout(_chain, args=(query, thread_id), timeout=timeout)
+        else:
+            response = _chain(query, thread_id)
+        
+        # If response is a string (from timeout), wrap it
+        if isinstance(response, str):
+            return {
+                "response": response,
+                "thread_id": thread_id,
+                "success": True
+            }
         
         print(f"Response generated successfully")
         return {
