@@ -1,9 +1,8 @@
-from flask import Flask, request, jsonify, session
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
 from werkzeug.utils import secure_filename
 import rag_service
-import uuid
 
 app = Flask(__name__)
 # Enable CORS for React frontend
@@ -19,32 +18,23 @@ if not os.path.exists(app.config['UPLOAD_FOLDER']):
 
 @app.route('/api/init', methods=['GET'])
 def init():
-    # Initialize thread_id in session if it doesn't exist
-    if 'thread_id' not in session:
-        session['thread_id'] = str(uuid.uuid4())
-    
     documents = rag_service.get_document_list()
-    return jsonify({'documents': documents, 'threadId': session['thread_id']})
+    return jsonify({'documents': documents})
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
     data = request.json
     query = data.get('message', '')
     
-    # Initialize thread_id in session if it doesn't exist
-    if 'thread_id' not in session:
-        session['thread_id'] = str(uuid.uuid4())
-    
-    # Process the query with the thread_id
-    result = rag_service.process_query(query, session['thread_id'])
+    # Process the query without thread_id
+    result = rag_service.process_query(query)
     
     return jsonify(result)
 
 @app.route('/api/chat/clear', methods=['POST'])
 def clear_chat():
-    # Generate a new thread_id to start a fresh conversation
-    session['thread_id'] = str(uuid.uuid4())
-    
+    # Clear chat history without thread_id
+    rag_service.clear_chat_history()  # Assuming you have a function to clear chat history
     return jsonify({'success': True, 'message': 'Chat history cleared'})
 
 @app.route('/api/upload', methods=['POST'])
@@ -57,12 +47,11 @@ def upload_file():
     if file.filename == '':
         return jsonify({'success': False, 'message': 'No selected file'})
     
-    # Define supported file extensions
+    # Define supported file extensions (removed image types)
     supported_extensions = [
         '.pdf',  # PDF files
         '.xlsx', '.xls',  # Excel files
         '.csv',  # CSV files
-        '.jpg', '.jpeg', '.png', '.gif', '.bmp'  # Image files
     ]
     
     # Check if the file has a supported extension
@@ -85,7 +74,7 @@ def upload_file():
     else:
         return jsonify({
             'success': False, 
-            'message': 'Unsupported file type. Please upload PDF, Excel, CSV, or image files.'
+            'message': 'Unsupported file type. Please upload PDF, Excel, or CSV files.'
         })
 
 @app.route('/api/documents', methods=['GET'])
