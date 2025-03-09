@@ -1,8 +1,8 @@
-# Genie - Document Intelligence
+# Genie - AI Database Assistant
 
 Genie is a web application that allows users to upload documents (PDF, Excel, CSV) and ask questions about them. The application uses a Retrieval-Augmented Generation (RAG) system to provide accurate answers based on the content of the uploaded documents.
 
-## Mistral OCR Support
+## [Mistral OCR](https://mistral.ai/en/news/mistral-ocr) Support
 
 Genie now includes Optical Character Recognition (OCR) capabilities powered by Mistral AI. To use OCR features:
 - Add your Mistral API key to the `.env` file
