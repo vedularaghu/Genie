@@ -347,8 +347,8 @@ function App() {
       {/* Sidebar */}
       <div className="sidebar">
         <div className="sidebar-header">
-          <button className="new-chat-btn" onClick={handleClearChat}>
-            <PlusIcon /> New chat
+          <button className="new-chat-btn" onClick={handleClearChat} title="Coming soon">
+            <PlusIcon /> New chat <span className="coming-soon-badge">Coming soon</span>
           </button>
         </div>
         <div className="sidebar-tabs">

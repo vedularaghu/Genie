@@ -171,8 +171,8 @@ def initialize_system():
             
             context += f"\n\nDocument {i+1} from {source}{page_info}:\n{doc.page_content}"
         
-        # Create prompt
-        prompt = f"""You are a document analysis assistant. Answer the question based ONLY on the following context from documents.
+        # Create prompt with fallback to general knowledge
+        prompt = f"""You are a document analysis assistant. Answer the question based on the following context from documents.
 
 Context:
 {context}
@@ -180,10 +180,11 @@ Context:
 Question: {query}
 
 Important instructions:
-1. Only use information from the provided context
-2. If the answer is not in the context, say "I don't have enough information to answer this question based on the provided documents."
-3. Do not use your general knowledge
-4. Cite the document sources in your answer
+1. First try to answer using ONLY information from the provided context
+2. If the answer is not in the context or the context is insufficient, you may use your general knowledge to provide a helpful response
+3. If you use general knowledge, clearly indicate this in your answer with: "[Note: This information comes from my general knowledge, not from your documents]"
+4. When using information from the documents, cite the document sources in your answer
+5. Always be truthful and helpful
 
 Answer:"""
         
