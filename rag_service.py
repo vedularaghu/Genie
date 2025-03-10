@@ -35,8 +35,7 @@ _is_initialized = False
 _memory = MemorySaver()
 _conversation_history = {}
 
-# Global timeout settings
-_default_timeout = 30  # Default timeout in seconds
+_default_timeout = 30
 
 def load_documents():
     """Load documents from the docs directory, supporting PDF, Excel, and CSV."""
@@ -110,8 +109,7 @@ def split_documents(documents):
     if not documents:
         print("No documents to split")
         return []
-    
-    # Use a simple splitter for all document types
+        
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200,
@@ -131,23 +129,18 @@ def initialize_system():
         return _chain
     
     print("Initializing simple RAG system...")
-    
-    # Initialize LLM
+        
     _llm = ChatOpenAI(model="gpt-4o", temperature=0)
     print("LLM initialized")
-    
-    # Initialize embeddings
+        
     _embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
     print("Embeddings initialized")
-    
-    # Create vector store
+        
     _vector_store = InMemoryVectorStore(embedding=_embeddings)
     print("Vector store initialized")
-    
-    # Load documents
+        
     documents = load_documents()
-    
-    # Process documents
+        
     if documents:
         chunks = split_documents(documents)
         if chunks:
@@ -156,13 +149,10 @@ def initialize_system():
             print("Documents added to vector store")
     else:
         print("WARNING: No documents were loaded")
-    
-    # Create a simple RAG chain
-    def simple_rag_chain(query, thread_id=None):
-        # Retrieve relevant documents
-        docs = _vector_store.similarity_search(query, k=5)
         
-        # Format documents
+    def simple_rag_chain(query, thread_id=None):        
+        docs = _vector_store.similarity_search(query, k=5)
+                
         context = ""
         for i, doc in enumerate(docs):
             source = doc.metadata.get('source', 'Unknown')
@@ -170,25 +160,23 @@ def initialize_system():
             page_info = f" (page {page})" if page else ""
             
             context += f"\n\nDocument {i+1} from {source}{page_info}:\n{doc.page_content}"
-        
-        # Create prompt with fallback to general knowledge
+                
         prompt = f"""You are a document analysis assistant. Answer the question based on the following context from documents.
 
-Context:
-{context}
+                        Context:
+                        {context}
 
-Question: {query}
+                        Question: {query}
 
-Important instructions:
-1. First try to answer using ONLY information from the provided context
-2. If the answer is not in the context or the context is insufficient, you may use your general knowledge to provide a helpful response
-3. If you use general knowledge, clearly indicate this in your answer with: "[Note: This information comes from my general knowledge, not from your documents]"
-4. When using information from the documents, cite the document sources in your answer
-5. Always be truthful and helpful
+                        Important instructions:
+                        1. First try to answer using ONLY information from the provided context
+                        2. If the answer is not in the context or the context is insufficient, you may use your general knowledge to provide a helpful response
+                        3. If you use general knowledge, clearly indicate this in your answer with: "[Note: This information comes from my general knowledge, not from your documents]"
+                        4. When using information from the documents, cite the document sources in your answer
+                        5. Always be truthful and helpful
 
-Answer:"""
-        
-        # Generate response
+                        Answer:"""
+                
         response = _llm.invoke(prompt)
         return response.content
     
@@ -200,10 +188,8 @@ Answer:"""
 def process_with_timeout(func, args=(), kwargs={}, timeout=None):
     """Execute a function with a timeout."""
     if timeout is None or timeout <= 0:
-        # No timeout, just execute the function
         return func(*args, **kwargs)
     
-    # Use concurrent.futures to run the function with a timeout
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(func, *args, **kwargs)
         try:
@@ -219,8 +205,7 @@ def process_query(query, thread_id=None, timeout=None):
     
     if not thread_id:
         thread_id = str(uuid.uuid4())
-    
-    # Extract timeout from query if specified
+        
     timeout_match = re.search(r'timeout=(\d+)', query)
     if timeout_match:
         try:
@@ -231,13 +216,11 @@ def process_query(query, thread_id=None, timeout=None):
         except ValueError:
             pass
     
-    try:
-        # Check if this is an OCR request
+    try:        
         ocr_result = process_ocr_request(query, thread_id)
         if ocr_result:
             return ocr_result
-        
-        # Get the list of document filenames
+                
         document_files = get_document_list()
         
         if not document_files:
@@ -247,8 +230,7 @@ def process_query(query, thread_id=None, timeout=None):
                 "thread_id": thread_id,
                 "success": True
             }
-        
-        # Special handling for document existence queries
+                
         if "any document" in query.lower() or "have document" in query.lower():
             doc_list = ", ".join(document_files)
             response = f"I have {len(document_files)} document(s) in my knowledge base: {doc_list}."
@@ -260,14 +242,12 @@ def process_query(query, thread_id=None, timeout=None):
             }
         
         print(f"Processing query: '{query}' with timeout: {timeout if timeout else 'None'}")
-        
-        # Run the chain with timeout
+                
         if timeout:
             response = process_with_timeout(_chain, args=(query, thread_id), timeout=timeout)
         else:
             response = _chain(query, thread_id)
         
-        # If response is a string (from timeout), wrap it
         if isinstance(response, str):
             return {
                 "response": response,
@@ -294,18 +274,12 @@ def get_document_list():
     docs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs")
     documents = []
     
-    if os.path.exists(docs_dir):
-        # Define supported file extensions
-        supported_extensions = [
-            '.pdf',  # PDF files
-            '.xlsx', '.xls',  # Excel files
-            '.csv',  # CSV files
-        ]
+    if os.path.exists(docs_dir):        
+        supported_extensions = ['.pdf', '.xlsx', '.xls','.csv']
         
         for filename in os.listdir(docs_dir):
             file_path = os.path.join(docs_dir, filename)
             if os.path.isfile(file_path):
-                # Check if the file has a supported extension
                 _, ext = os.path.splitext(filename.lower())
                 if ext in supported_extensions:
                     documents.append(filename)
@@ -313,28 +287,22 @@ def get_document_list():
     return documents
 
 def process_ocr_request(query, thread_id=None):
-    """Process OCR request for PDF documents."""
-    # Force output to be visible
+    """Process OCR request for PDF documents."""    
     import sys
     sys.stdout.flush()
     print("\n\n=== CHECKING IF OCR REQUEST ===", flush=True)
     
-    try:
-        # Check if the query is asking for OCR
-        ocr_pattern = re.compile(r'ocr|optical character recognition', re.IGNORECASE)
-        
-        # Print what we're looking for
+    try:        
+        ocr_pattern = re.compile(r'ocr|optical character recognition', re.IGNORECASE)                
         print(f"Query: '{query}'", flush=True)
         print(f"OCR pattern match: {bool(ocr_pattern.search(query))}", flush=True)
-        
-        # Simplified detection - just check for OCR keyword
+                
         if not ocr_pattern.search(query):
             print("Not an OCR request - missing OCR keyword", flush=True)
-            return None  # Not an OCR request
+            return None
         
         print("=== OCR REQUEST DETECTED ===", flush=True)
-        
-        # Get the list of PDF documents
+                
         documents = get_document_list()
         pdf_docs = [doc for doc in documents if doc.lower().endswith('.pdf')]
         
@@ -348,8 +316,7 @@ def process_ocr_request(query, thread_id=None):
         
         print(f"Found PDF documents: {pdf_docs}", flush=True)
         
-        try:
-            # Check if MISTRAL_API_KEY is set in the environment
+        try:            
             mistral_api_key = os.environ.get("MISTRAL_API_KEY")
             if not mistral_api_key:
                 print("MISTRAL_API_KEY not found in environment variables", flush=True)
@@ -360,8 +327,7 @@ def process_ocr_request(query, thread_id=None):
                 }
             
             print(f"MISTRAL_API_KEY found: {mistral_api_key[:5]}...{mistral_api_key[-5:]}", flush=True)
-            
-            # Import Mistral client
+                        
             try:
                 from mistralai import Mistral
             except ImportError:
@@ -370,17 +336,14 @@ def process_ocr_request(query, thread_id=None):
                     "thread_id": thread_id,
                     "success": False
                 }
-            
-            # For simplicity, use the first PDF in the list
+                        
             docs_directory = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs")
             pdf_path = os.path.join(docs_directory, pdf_docs[0])
             
             print(f"Processing PDF for OCR: {pdf_path}")
-            
-            # Initialize Mistral client
+                        
             client = Mistral(api_key=mistral_api_key)
-            
-            # Upload the PDF file for OCR
+                        
             try:
                 print(f"Uploading PDF for OCR: {pdf_path}")
                 
@@ -392,13 +355,10 @@ def process_ocr_request(query, thread_id=None):
                     purpose="ocr"
                 )
                 
-                print(f"File uploaded successfully with ID: {uploaded_pdf.id}")
-                
-                # Get signed URL for the uploaded file
+                print(f"File uploaded successfully with ID: {uploaded_pdf.id}")                                
                 signed_url = client.files.get_signed_url(file_id=uploaded_pdf.id)
                 print(f"Got signed URL: {signed_url.url}")
-                
-                # Process the uploaded file with OCR using the signed URL
+                                
                 ocr_response = client.ocr.process(
                     model="mistral-ocr-latest",
                     document={
@@ -406,10 +366,8 @@ def process_ocr_request(query, thread_id=None):
                         "document_url": signed_url.url,
                     }
                 )
-                
-                # Extract text from response
-                if hasattr(ocr_response, 'pages') and ocr_response.pages:
-                    # Combine text from all pages
+                                
+                if hasattr(ocr_response, 'pages') and ocr_response.pages:                    
                     ocr_text = ""
                     for page in ocr_response.pages:
                         if hasattr(page, 'text'):
@@ -419,7 +377,6 @@ def process_ocr_request(query, thread_id=None):
                 else:
                     ocr_text = str(ocr_response)
                 
-                # Format as markdown
                 markdown_text = f"# OCR Results for {pdf_docs[0]}\n\n"
                 markdown_text += "```\n"
                 markdown_text += ocr_text
@@ -432,13 +389,12 @@ def process_ocr_request(query, thread_id=None):
                 }
                 
             except Exception as e:
-                print(f"Error in Mistral OCR processing: {str(e)}")
-                
-                # Fall back to basic text extraction
-                import pypdf
+                print(f"Error in Mistral OCR processing: {str(e)}")                                
+                import pypdf                
                 
                 reader = pypdf.PdfReader(pdf_path)
                 text = ""
+                
                 for page_num in range(len(reader.pages)):
                     page = reader.pages[page_num]
                     text += page.extract_text() + "\n\n"
